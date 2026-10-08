@@ -5,13 +5,15 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import wave
 from contextlib import redirect_stderr
 from pathlib import Path
 from unittest import mock
 
-from quenya_speak.speech import concat_wavs, play, speak, synthesize, voices_dir
+import quenya_speak.speech as speech
+from quenya_speak.speech import concat_wavs, play, speak, stop, synthesize, voices_dir
 from quenya_speak.utterance import text_utterances, word_utterance
 
 
@@ -60,13 +62,20 @@ class SpeechTests(unittest.TestCase):
             "PIPER_VOICES_DIR": os.environ.get("PIPER_VOICES_DIR"),
             "PATH": os.environ.get("PATH"),
         }
+        self._reset_playback()
 
     def tearDown(self):
+        self._reset_playback()
         for key, value in self._saved_env.items():
             if value is None:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+
+    def _reset_playback(self):
+        speech._playback = None
+        if hasattr(speech, "_cancel"):
+            speech._cancel = False
 
     def test_voices_dir_uses_home_when_unset(self):
         os.environ.pop("PIPER_VOICES_DIR", None)
@@ -243,6 +252,85 @@ class SpeechTests(unittest.TestCase):
                     ("play", out),
                 ],
             )
+
+    def test_stop_before_play_does_not_start_a_player(self):
+        with tempfile.TemporaryDirectory() as directory:
+            wav = Path(directory) / "clip.wav"
+            _write_wav(wav, b"\x00\x00" * 8)
+            stop()
+            process = mock.Mock()
+            process.wait.return_value = 0
+            process.poll.return_value = None
+            started = time.monotonic()
+            with (
+                mock.patch("quenya_speak.speech.player", return_value="afplay"),
+                mock.patch(
+                    "quenya_speak.speech.subprocess.Popen",
+                    return_value=process,
+                ) as popen,
+            ):
+                result = play(wav)
+            elapsed = time.monotonic() - started
+            self.assertEqual(result, "failed")
+            popen.assert_not_called()
+            process.wait.assert_not_called()
+            self.assertLess(elapsed, 0.5)
+
+    def test_stop_during_popen_terminates_without_waiting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            wav = Path(directory) / "clip.wav"
+            _write_wav(wav, b"\x00\x00" * 8)
+            process = mock.Mock()
+            process.wait.return_value = 0
+            process.poll.return_value = None
+
+            def popen(command):
+                stop()
+                return process
+
+            started = time.monotonic()
+            with (
+                mock.patch("quenya_speak.speech.player", return_value="afplay"),
+                mock.patch(
+                    "quenya_speak.speech.subprocess.Popen",
+                    side_effect=popen,
+                ),
+            ):
+                result = play(wav)
+            elapsed = time.monotonic() - started
+            self.assertEqual(result, "failed")
+            process.terminate.assert_called_once()
+            process.wait.assert_not_called()
+            self.assertLess(elapsed, 0.5)
+
+    def test_speak_clears_a_stop_from_before_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            os.environ["HOME"] = directory
+            out = Path(directory) / "out.wav"
+            stop()
+
+            def write_wav(utterances, target):
+                _write_wav(target, b"\x00\x01" * 4)
+                return target
+
+            process = mock.Mock()
+            process.wait.return_value = 0
+            process.poll.return_value = None
+            with (
+                mock.patch("quenya_speak.speech.synthesize", side_effect=write_wav),
+                mock.patch("quenya_speak.speech.player", return_value="afplay"),
+                mock.patch(
+                    "quenya_speak.speech.subprocess.Popen",
+                    return_value=process,
+                ) as popen,
+            ):
+                result = speak("cirya", out)
+            self.assertEqual(result, "played")
+            popen.assert_called_once()
+            process.terminate.assert_not_called()
+            process.wait.assert_called_once()
+            self.assertEqual(popen.call_args.args[0], ["afplay", str(out)])
+            self.assertTrue(out.is_file())
 
 
 if __name__ == "__main__":

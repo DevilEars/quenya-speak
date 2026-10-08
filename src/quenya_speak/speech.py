@@ -19,6 +19,7 @@ _LENGTH_SCALE = 1.15
 _GAP_SECONDS = 0.3
 
 _playback: subprocess.Popen[bytes] | None = None
+_cancel = False
 
 
 def voices_dir() -> Path:
@@ -170,26 +171,9 @@ def _clip(voice, config, utterance: str, directory: Path) -> Path:
     return temporary
 
 
-def play(path: Path) -> str:
-    """Play ``path``. Returns ``played``, ``no_player``, or ``failed``."""
-    global _playback
-    program = player()
-    if program is None:
-        return "no_player"
-    command = [program]
-    if program == "ffplay":
-        command.extend(["-nodisp", "-autoexit", "-loglevel", "error"])
-    command.append(str(path))
-    _playback = subprocess.Popen(command)
-    if _playback.wait() == 0:
-        return "played"
-    return "failed"
-
-
-def stop() -> None:
-    """Terminate the player started by ``play``, if it is still running."""
-    process = _playback
-    if process is None or process.poll() is not None:
+def _terminate(process: subprocess.Popen[bytes]) -> None:
+    """Stop ``process`` if it is still running. Does not wait."""
+    if process.poll() is not None:
         return
     try:
         process.terminate()
@@ -197,8 +181,43 @@ def stop() -> None:
         return
 
 
+def play(path: Path) -> str:
+    """Play ``path``. Returns ``played``, ``no_player``, or ``failed``."""
+    global _playback
+    if _cancel:
+        return "failed"
+    program = player()
+    if program is None:
+        return "no_player"
+    command = [program]
+    if program == "ffplay":
+        command.extend(["-nodisp", "-autoexit", "-loglevel", "error"])
+    command.append(str(path))
+    process = subprocess.Popen(command)
+    _playback = process
+    # stop() can land after the pre-Popen check and before this assignment.
+    if _cancel:
+        _terminate(process)
+        return "failed"
+    if process.wait() == 0:
+        return "played"
+    return "failed"
+
+
+def stop() -> None:
+    """Latch cancel and terminate a player that is already running."""
+    global _cancel
+    _cancel = True
+    process = _playback
+    if process is None:
+        return
+    _terminate(process)
+
+
 def speak(text: str, out: Path) -> str:
     """Synthesize ``text``, remember it, and play the WAV."""
+    global _cancel
+    _cancel = False
     utterances = text_utterances(text)
     synthesize(utterances, out)
     try:
