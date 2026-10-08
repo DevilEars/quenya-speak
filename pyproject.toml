@@ -12,5 +12,8 @@ dependencies = [
     "textual",
 ]
 
+[project.scripts]
+quenya-say = "quenya_speak.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
