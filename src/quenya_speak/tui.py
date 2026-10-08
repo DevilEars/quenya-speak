@@ -6,6 +6,7 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, HorizontalScroll
+from textual.content import Content
 from textual.widgets import Button, Input, Static, TextArea
 from textual.worker import Worker, WorkerState
 
@@ -18,7 +19,8 @@ class ChipButton(Button):
     """An earlier text. The label is the short form; the button keeps the full text."""
 
     def __init__(self, label: str, full_text: str) -> None:
-        super().__init__(label, compact=True)
+        # Button parses a str as markup and drops or rejects brackets.
+        super().__init__(Content.from_text(label, markup=False), compact=True)
         self.full_text = full_text
 
 
