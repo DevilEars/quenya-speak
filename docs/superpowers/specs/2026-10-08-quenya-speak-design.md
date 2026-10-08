@@ -157,8 +157,9 @@ A record is one JSON object per line: `{"text": "<the spoken text>"}`, UTF-8, wi
 Voice directory, in order:
 
 1. `PIPER_VOICES_DIR` when it is set and non-empty.
-2. The directory `Quenya/claudeslop/.piper-voices` next to this repository, when that directory exists.
-3. `~/.piper-voices`.
+2. `~/.piper-voices`.
+
+The program does not look in a parent directory, a sibling checkout, or any other repository. A voice that already exists somewhere else is used only when `PIPER_VOICES_DIR` points at it.
 
 `synthesize` creates the voice directory if needed. If `en_GB-cori-high.onnx` or `en_GB-cori-high.onnx.json` is missing or empty, it runs:
 
@@ -207,7 +208,7 @@ The one-shot command calls `speak`. Stage calls `text_utterances` for the subtit
 
 `tests/test_history.py` uses a temporary home. It checks append, exact-text dedupe, the 50-item cap, chip order (newest first, 12 labels), a skipped bad line, and an unreadable file returning an empty list.
 
-`tests/test_speech.py` calls `synthesize` on `word_utterance("cirya")` only when `piper-tts` imports and the resolved voice files are already present and non-empty. It expects a WAV with at least one frame. It does not download a voice, does not play audio, and does not compare samples. When the voice or the package is missing, the test is skipped.
+`tests/test_speech.py` calls `synthesize` on `word_utterance("cirya")` only when `piper-tts` imports and `voices_dir()` already holds a non-empty voice. It expects a WAV with at least one frame. It does not download a voice, does not play audio, does not compare samples, and does not look outside `voices_dir()`. When the voice or the package is missing, the test is skipped.
 
 Stage is not driven in a test. The subtitle and Speak refusal are the utterance errors above.
 
@@ -218,12 +219,13 @@ The README says what the program does and that it is not a lesson course. It giv
 Already on this machine:
 
 ```
+export PIPER_VOICES_DIR=/path/to/Quenya/claudeslop/.piper-voices
 source <existing-piper-venv>/bin/activate
 pip install -e .
 quenya-say
 ```
 
-`<existing-piper-venv>` is a virtual environment that already has `piper-tts` installed. The voice directory beside this repository is used when it is present. `PIPER_VOICES_DIR` overrides it.
+`<existing-piper-venv>` is a virtual environment that already has `piper-tts` installed. `PIPER_VOICES_DIR` points at a voice directory the person already has. The example path is a location, not a place the program searches.
 
 A new machine:
 
@@ -244,3 +246,4 @@ The first speak downloads `en_GB-cori-high` into `~/.piper-voices`, or into `PIP
 - A lexicon, a lesson, or Tengwar.
 - Keeping old WAV files for each chip. A chip speaks by synthesizing again.
 - Creating the GitHub remote or pushing to it.
+- Finding a virtual environment, a voice, or any other file by looking at a neighbouring repository.
