@@ -5,7 +5,7 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, HorizontalScroll
+from textual.containers import Center, HorizontalScroll, Vertical
 from textual.content import Content
 from textual.widgets import Button, Input, Static, TextArea
 from textual.worker import Worker, WorkerState
@@ -37,8 +37,11 @@ class PathPrompt(Input):
         stage.dismiss_path()
 
 
+_WAVE = "▁▂▃▅▇▅▃▂▁▂▃▅▇▅▃▂▁"
+
+
 class Stage(App[None]):
-    """Phrase in the center, pronunciation under it, earlier texts along the bottom."""
+    """A narrow column: the phrase, its pronunciation, and earlier texts."""
 
     ESCAPE_TO_MINIMIZE = False
 
@@ -51,66 +54,117 @@ class Stage(App[None]):
 
     CSS = """
     Screen {
-        layout: vertical;
-        padding: 1 2;
+        background: #070b12;
+        align-horizontal: center;
     }
 
-    #top {
-        height: 1;
-        margin-bottom: 1;
+    #column {
+        width: 56;
+        max-width: 100%;
+        height: 1fr;
+        background: #070b12;
+        padding: 1 0;
     }
 
     #mark {
-        width: 1fr;
+        height: 1;
+        content-align: center middle;
+        text-align: center;
+        color: #8eb4d4;
         text-style: bold;
     }
 
-    #status {
-        width: auto;
-        content-align: right middle;
-        color: $text-muted;
-    }
-
-    #status.speaking {
-        color: $accent;
-    }
-
     #phrase {
-        height: 1fr;
+        height: auto;
         min-height: 3;
+        max-height: 12;
+        margin-top: 1;
+        background: #070b12;
+        color: #f7fbff;
+        border: none;
+        padding: 0;
+    }
+
+    #phrase:focus {
+        border: none;
+    }
+
+    #phrase .text-area--cursor-line {
+        background: #10182a;
     }
 
     #subtitle {
         height: auto;
-        max-height: 10;
+        max-height: 8;
         margin-top: 1;
-        color: $text-muted;
+        color: #9fb6cc;
+        text-align: center;
     }
 
     #pulse {
         height: 1;
-        color: $accent;
-        text-style: bold;
+        margin-top: 1;
+        color: #8eb4d4;
+        text-align: center;
     }
 
-    #speak {
-        width: auto;
+    #speak-row {
+        height: auto;
         margin-top: 1;
         margin-bottom: 1;
     }
 
+    #speak {
+        width: auto;
+        min-width: 14;
+        background: #d5e6f5;
+        color: #071018;
+        border: none;
+        text-style: bold;
+    }
+
+    #speak:hover {
+        background: #f7fbff;
+        color: #071018;
+    }
+
+    #speak:disabled {
+        text-opacity: 0.5;
+    }
+
     #file {
         margin-bottom: 1;
+        background: #152033;
+        color: #f7fbff;
+        border: none;
+    }
+
+    #fill {
+        height: 1fr;
     }
 
     #chips {
         height: auto;
-        max-height: 5;
+        max-height: 3;
+        align-horizontal: center;
     }
 
     ChipButton {
-        margin-right: 1;
+        margin: 0 1 0 0;
         min-width: 4;
+        background: #152033;
+        color: #c5d5e4;
+        border: none !important;
+        text-style: none;
+    }
+
+    ChipButton:hover {
+        background: #1c3048;
+        color: #f7fbff;
+    }
+
+    ChipButton:disabled {
+        text-opacity: 0.45;
     }
 
     .hidden {
@@ -123,32 +177,38 @@ class Stage(App[None]):
         self.out = out
         self._speaking = False
         self._quitting = False
-        self._pulse_on = True
+        self._pulse_step = 0
         # ``load_text`` posts Changed later. Skip that one so a playback
         # message is not replaced by the pronunciation we already showed.
         self._skip_subtitle = 0
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="top"):
-            yield Static("quenya", id="mark")
-            yield Static("ready", id="status")
-        yield TextArea(id="phrase", soft_wrap=True)
-        yield Static(subtitle(""), id="subtitle", markup=False)
-        yield Static("●", id="pulse", classes="hidden")
-        yield Button("Speak", id="speak", variant="primary")
-        yield PathPrompt(placeholder="file path", id="file", classes="hidden")
-        with HorizontalScroll(id="chips"):
-            yield from _chip_buttons()
+        with Vertical(id="column"):
+            yield Static("quenya · ready", id="mark")
+            yield TextArea(id="phrase", soft_wrap=True, compact=True)
+            yield Static(subtitle(""), id="subtitle", markup=False)
+            yield Static(self._wave_frame(), id="pulse", classes="hidden")
+            with Center(id="speak-row"):
+                yield Button("speak", id="speak", compact=True)
+            yield PathPrompt(placeholder="file path", id="file", classes="hidden")
+            yield Static("", id="fill")
+            with HorizontalScroll(id="chips"):
+                yield from _chip_buttons()
 
     def on_mount(self) -> None:
         self.query_one("#phrase", TextArea).focus()
-        self.set_interval(0.45, self._blink_pulse)
+        self.set_interval(0.16, self._blink_pulse)
+
+    def _wave_frame(self) -> str:
+        start = self._pulse_step % len(_WAVE)
+        spun = _WAVE[start:] + _WAVE[:start]
+        return spun[:18]
 
     def _blink_pulse(self) -> None:
         if not self._speaking:
             return
-        self._pulse_on = not self._pulse_on
-        self.query_one("#pulse", Static).update("●" if self._pulse_on else "○")
+        self._pulse_step += 1
+        self.query_one("#pulse", Static).update(self._wave_frame())
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         if self._skip_subtitle:
@@ -245,13 +305,11 @@ class Stage(App[None]):
 
     def _set_speaking(self, speaking: bool) -> None:
         self._speaking = speaking
-        status = self.query_one("#status", Static)
-        status.update("speaking" if speaking else "ready")
-        status.set_class(speaking, "speaking")
+        mark = "quenya · speaking" if speaking else "quenya · ready"
+        self.query_one("#mark", Static).update(mark)
         pulse = self.query_one("#pulse", Static)
-        pulse.update("●")
+        pulse.update(self._wave_frame())
         pulse.set_class(not speaking, "hidden")
-        self._pulse_on = True
         self.query_one("#speak", Button).disabled = speaking
         for chip in self.query(ChipButton):
             chip.disabled = speaking
