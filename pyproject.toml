@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quenya-speak"
+version = "0.1.0"
+description = "Speak Quenya text on your own machine."
+requires-python = ">=3.11"
+dependencies = [
+    "piper-tts",
+    "textual",
+]
+
+[project.scripts]
+quenya-say = "quenya_speak.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
